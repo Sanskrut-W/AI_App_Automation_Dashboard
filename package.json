@@ -1,0 +1,14 @@
+{
+  "name": "ai-automation-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Visual control panel for the AI mobile test automation platform. Runs as a separate app and drives the platform's CLI; never modifies the platform's own directory.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "multer": "^2.0.0"
+  }
+}

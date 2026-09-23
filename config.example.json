@@ -1,0 +1,7 @@
+{
+  "automationDir": "C:/path/to/AI_App_Automation",
+  "port": 4000,
+  "appiumPort": 4723,
+  "adbPath": "adb",
+  "nodePath": "node"
+}

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mobile Test Automation — Control Panel</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◈</span>
+    <div>
+      <h1>Mobile Test Automation</h1>
+      <p class="brand-sub">Control panel</p>
+    </div>
+  </div>
+  <div class="status-strip" id="statusStrip">
+    <div class="chip" id="chipPlatform"><span class="dot"></span><span class="chip-text">Platform</span></div>
+    <div class="chip" id="chipAppium"><span class="dot"></span><span class="chip-text">Test engine</span></div>
+    <div class="chip" id="chipDevices"><span class="dot"></span><span class="chip-text">Phones</span></div>
+    <button class="btn btn-quiet" id="btnSettings" type="button">Settings</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ---------------------------------------------------------------- device picker -->
+  <section class="card">
+    <div class="card-head">
+      <h2>1 · Choose a phone</h2>
+      <button class="btn btn-quiet btn-sm" id="btnRefreshDevices" type="button">Refresh</button>
+    </div>
+    <p class="hint">Plug the phone in with a USB cable and unlock it. Everything you run below happens on the phone you pick here.</p>
+    <div id="deviceList" class="device-list"><p class="muted">Looking for phones…</p></div>
+    <div class="inline-actions">
+      <button class="btn btn-quiet btn-sm" id="btnStartEngine" type="button">Start test engine</button>
+      <button class="btn btn-quiet btn-sm" id="btnStopEngine" type="button">Stop test engine</button>
+      <button class="btn btn-quiet btn-sm" id="btnBuild" type="button">Build platform</button>
+      <span class="hint" id="engineHint">The test engine must be running before anything can talk to a phone.</span>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- tabs -->
+  <nav class="tabs" id="tabs">
+    <button class="tab is-active" data-tab="explore" type="button">Explore a new app</button>
+    <button class="tab" data-tab="run" type="button">Run tests</button>
+    <button class="tab" data-tab="parallel" type="button">Run on several phones</button>
+    <button class="tab" data-tab="create" type="button">Create tests from a flow</button>
+    <button class="tab" data-tab="results" type="button">Results</button>
+  </nav>
+
+  <!-- ---------------------------------------------------------------- explore -->
+  <section class="card tabpanel is-active" data-panel="explore">
+    <h2>2 · Explore a new app</h2>
+    <p class="hint">
+      Point it at an app — either an .apk file you have, or one already installed on the phone — and it will
+      walk through the screens by itself and record every button and field it finds. Where it recognises a
+      sign-in, sign-up or menu, it also writes tests for them.
+    </p>
+
+    <div class="field">
+      <label>Where is the app?</label>
+      <div class="seg" id="apkSource">
+        <label class="seg-btn">
+          <input type="radio" name="apkSource" value="file" checked />
+          <span>I have the .apk file</span>
+        </label>
+        <label class="seg-btn">
+          <input type="radio" name="apkSource" value="device" />
+          <span>It is already on the phone</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="field" id="apkFileField">
+      <label for="apkFile">App file (.apk)</label>
+      <input type="file" id="apkFile" accept=".apk" />
+      <p class="hint" id="apkHint">Nothing chosen yet.</p>
+    </div>
+
+    <div class="field" id="apkDeviceField" hidden>
+      <div class="label-row">
+        <label for="devicePackage">App installed on the phone</label>
+        <div class="inline-actions">
+          <label class="check check-inline">
+            <input type="checkbox" id="showSystemApps" />
+            <span>Include built-in apps</span>
+          </label>
+          <button class="btn btn-quiet btn-sm" id="btnRefreshPackages" type="button">Refresh</button>
+        </div>
+      </div>
+      <select id="devicePackage"></select>
+      <p class="hint" id="devicePackageHint">Choose a phone in step 1 first.</p>
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label for="maxScreens">How many screens to explore at most</label>
+        <input type="number" id="maxScreens" value="20" min="1" max="500" />
+        <p class="hint">Lower is faster. 20 is a sensible first look.</p>
+      </div>
+      <div class="field">
+        <label for="maxDepth">How deep to go</label>
+        <input type="number" id="maxDepth" value="3" min="1" max="20" />
+        <p class="hint">How many taps away from the first screen it will wander.</p>
+      </div>
+    </div>
+
+    <details class="disclose">
+      <summary>Sign-in details (only if you want sign-in tests written)</summary>
+      <p class="hint">
+        Leave both boxes empty to skip this. If you fill them in, they are used to write a sign-in test and are
+        passed straight to the app — so use a test account, never a real personal one.
+      </p>
+      <div class="grid-2">
+        <div class="field">
+          <label for="loginMobile">Mobile number</label>
+          <input type="text" id="loginMobile" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" autocomplete="off" />
+        </div>
+      </div>
+    </details>
+
+    <label class="check">
+      <input type="checkbox" id="crawlOnly" checked />
+      <span>Just explore — don't run any tests afterwards <em>(recommended for a new app)</em></span>
+    </label>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btnCrawl" type="button">Start exploring</button>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- run -->
+  <section class="card tabpanel" data-panel="run">
+    <h2>2 · Run tests</h2>
+    <p class="hint">Pick an app, pick which tests, and run them on the phone you chose above.</p>
+
+    <div class="grid-2">
+      <div class="field">
+        <label for="runApp">App</label>
+        <select id="runApp"></select>
+      </div>
+      <div class="field">
+        <label for="runModule">Which set of tests</label>
+        <select id="runModule"></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="label-row">
+        <label>Tests</label>
+        <div class="inline-actions">
+          <button class="btn btn-quiet btn-sm" id="btnSelectAll" type="button">Select all</button>
+          <button class="btn btn-quiet btn-sm" id="btnSelectNone" type="button">Clear</button>
+        </div>
+      </div>
+      <div id="caseList" class="case-list"><p class="muted">Choose an app first.</p></div>
+      <p class="hint">Leave everything unticked to run the whole set in its normal order.</p>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btnRun" type="button">Run tests</button>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- parallel -->
+  <section class="card tabpanel" data-panel="parallel">
+    <h2>2 · Run on several phones at once</h2>
+    <p class="hint">
+      One row per phone, each with its own app and its own tests. They all run at the same time, so two phones
+      finish in about the time one used to take. The phone picked in step 1 is not used here — each row says
+      which phone it is for.
+    </p>
+    <p class="callout">
+      Every phone needs its own sign-in account, or the phones sign each other out mid-run. Rows below turn
+      amber when a phone has no account set for the app it is running.
+    </p>
+
+    <div class="field">
+      <label for="parallelModule">Which set of tests</label>
+      <select id="parallelModule"></select>
+      <p class="hint">Every phone runs tests from this set.</p>
+    </div>
+
+    <div id="parallelRows" class="parallel-rows"></div>
+
+    <div class="inline-actions">
+      <button class="btn btn-quiet btn-sm" id="btnAddParallelRow" type="button">Add a phone</button>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btnParallel" type="button">Run on all phones</button>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- create -->
+  <section class="card tabpanel" data-panel="create">
+    <h2>2 · Create tests from a flow</h2>
+    <p class="hint">
+      Write out the steps of a journey in a spreadsheet and it will turn them into real, runnable tests, matching
+      each step to the buttons and fields recorded when the app was explored.
+    </p>
+    <p class="callout">
+      The app must have been explored first — that is where the buttons and fields come from. If your app is not
+      in the list below, run <strong>Explore a new app</strong> on it first.
+    </p>
+
+    <div class="grid-2">
+      <div class="field">
+        <label for="importApp">App these tests are for</label>
+        <select id="importApp"></select>
+        <p class="hint" id="importHint"></p>
+      </div>
+      <div class="field">
+        <label for="excelFile">Your flow file (.xlsx)</label>
+        <input type="file" id="excelFile" accept=".xlsx,.xls" />
+        <p class="hint" id="excelHint">Nothing chosen yet.</p>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btnImport" type="button">Create tests</button>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- results -->
+  <section class="card tabpanel" data-panel="results">
+    <div class="card-head">
+      <h2>Results</h2>
+      <button class="btn btn-quiet btn-sm" id="btnRefreshApps" type="button">Refresh</button>
+    </div>
+    <p class="hint">Every run produces a report with a screenshot of each checkpoint. Newest first.</p>
+    <div id="appSummary" class="summary-grid"></div>
+    <div class="field">
+      <label for="resultsApp">Reports for</label>
+      <select id="resultsApp"></select>
+    </div>
+    <div id="reportList" class="report-list"><p class="muted">Choose an app.</p></div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- console -->
+  <section class="card console-card">
+    <div class="card-head">
+      <h2>Live progress</h2>
+      <div class="inline-actions">
+        <span class="job-label" id="jobLabel">Nothing running</span>
+        <button class="btn btn-danger btn-sm" id="btnStop" type="button" disabled>Stop</button>
+        <button class="btn btn-quiet btn-sm" id="btnClearLog" type="button">Clear</button>
+      </div>
+    </div>
+    <div id="verdict" class="verdict" hidden></div>
+    <pre id="console" class="console" aria-live="polite"></pre>
+  </section>
+
+</main>
+
+<!-- ---------------------------------------------------------------- settings dialog -->
+<dialog id="settingsDialog" class="dialog">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <div class="field">
+      <label for="automationDir">Automation platform folder</label>
+      <input type="text" id="automationDir" spellcheck="false" />
+      <p class="hint">The folder that holds the automation platform. The dashboard only reads it and runs its commands — it never changes what is inside.</p>
+    </div>
+    <p class="hint" id="settingsMsg"></p>
+    <div class="actions">
+      <button class="btn btn-quiet" value="cancel" type="submit">Close</button>
+      <button class="btn btn-primary" id="btnSaveSettings" value="save" type="button">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

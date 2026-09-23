@@ -1,0 +1,12 @@
+node_modules/
+
+# Uploaded APKs and spreadsheets, and APKs copied off a phone. Run artifacts, not source.
+uploads/
+
+# Local machine settings: the path to the automation platform differs per checkout.
+# config.example.json is the template; the dashboard also runs fine with no config at all.
+config.json
+
+# Internal overview carrying real project metrics — deliberately not published.
+docs/Mobile-Test-Automation-Overview.pdf
+docs/overview.html
