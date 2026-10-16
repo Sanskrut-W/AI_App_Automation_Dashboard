@@ -19,6 +19,7 @@ const { loadConfig, saveConfig } = require('./lib/config');
 const platform = require('./lib/platform');
 const appium = require('./lib/appium');
 const { JobRunner } = require('./lib/jobs');
+const { createRunQueue } = require('./lib/queue');
 
 const config = loadConfig();
 const app = express();
@@ -41,6 +42,17 @@ const upload = multer({
 
 const ok = (res, body) => res.json({ ok: true, ...body });
 const fail = (res, message, code = 400) => res.status(code).json({ ok: false, error: message });
+
+/** Status as the browser should see it: the running job plus anything waiting behind it. */
+const statusWithQueue = () => ({ ...jobs.status(), queue: runQueue.state() });
+
+const runQueue = createRunQueue(jobs, {
+  // The runner emits its own status when a job starts; this covers the changes it cannot see,
+  // such as a batch being abandoned with nothing new started in its place.
+  onChange: () => jobs.emit('status', statusWithQueue()),
+});
+
+const startRuns = (runs) => ({ ...runQueue.start(runs), queue: runQueue.state() });
 
 /** Every run needs the platform present and built; say so once, clearly, rather than per-endpoint. */
 function requirePlatform(res) {
@@ -124,7 +136,7 @@ app.get('/api/health', async (_req, res) => {
     platform: status,
     appium: { port: config.appiumPort, running: await appium.isRunning(config.appiumPort) },
     adb: { ok: devices.ok, error: devices.error || null, deviceCount: devices.devices.length },
-    job: jobs.status(),
+    job: statusWithQueue(),
     config: { automationDir: status.automationDir, port: config.port, appiumPort: config.appiumPort },
   });
 });
@@ -276,9 +288,15 @@ app.post('/api/device-apk/pull', async (req, res) => {
 // Jobs
 // ---------------------------------------------------------------------------------------------
 
-app.get('/api/job', (_req, res) => ok(res, { ...jobs.status(), lines: jobs.history() }));
+app.get('/api/job', (_req, res) => ok(res, { ...statusWithQueue(), lines: jobs.history() }));
 
 app.post('/api/job/stop', (_req, res) => {
+  // Stop means stop: anything queued behind this run is dropped too, which is what someone
+  // pressing it during a seventeen-set batch means by it.
+  const dropped = runQueue.clear();
+  if (dropped) {
+    runQueue.clear(`${dropped} queued set${dropped === 1 ? '' : 's'} cancelled as well.`);
+  }
   const stopped = jobs.stop();
   ok(res, { stopped });
 });
@@ -294,11 +312,12 @@ app.get('/api/stream', (req, res) => {
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
   // Replay what has already happened, so a reload mid-run is not a blank console.
-  send('status', jobs.status());
+  send('status', statusWithQueue());
   for (const line of jobs.history()) send('line', line);
 
   const onLine = (line) => send('line', line);
-  const onStatus = (status) => send('status', status);
+  // Re-read rather than forwarding the runner's payload, so every status carries the queue.
+  const onStatus = () => send('status', statusWithQueue());
   jobs.on('line', onLine);
   jobs.on('status', onStatus);
   const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
@@ -387,35 +406,60 @@ app.post('/api/run/crawl', async (req, res) => {
 /** Run a stored suite, or specific cases from it. */
 app.post('/api/run/execute', async (req, res) => {
   if (!requirePlatform(res)) return;
-  const { pkg, module: moduleName, device, testCaseIds } = req.body || {};
+  const { pkg, module: moduleName, modules, device, testCaseIds } = req.body || {};
   if (!pkg) return fail(res, 'Choose an app.');
-  if (!moduleName) return fail(res, 'Choose which set of tests to run.');
   if (!device) return fail(res, 'Choose a device to run on.');
+
+  // `modules` is the current shape; `module` is still accepted so an older page keeps working.
+  const wanted = Array.isArray(modules) && modules.length
+    ? [...new Set(modules.filter((name) => typeof name === 'string' && name))]
+    : moduleName ? [moduleName] : [];
+  if (!wanted.length) return fail(res, 'Tick at least one set of tests to run.');
+
+  const stored = platform.listApps(config.automationDir).find((a) => a.package === pkg);
+  const known = new Map((stored?.modules ?? []).map((m) => [m.name, m.cases.length]));
+  const unknown = wanted.filter((name) => !known.has(name));
+  if (unknown.length) {
+    return fail(res, `${pkg} has no stored tests for: ${unknown.join(', ')}.`, 409);
+  }
+
   if (jobs.isBusy()) return fail(res, 'Something is already running. Wait for it to finish, or press Stop.', 409);
   if (!(await preflightDevice(res, device))) return;
 
-  const args = [
-    platform.platformPaths(config.automationDir).cli,
-    '--execute-only',
-    '--package', pkg,
-    '--module', moduleName,
-    '--device', device,
-  ];
-  for (const id of Array.isArray(testCaseIds) ? testCaseIds : []) {
-    if (/^[\w.-]+$/.test(id)) args.push('--test-case-id', id);
-  }
+  // Picking individual tests only means something within one set; across several the whole of each
+  // is run, which is what ticking several sets is asking for.
+  const chosenIds = wanted.length === 1 && Array.isArray(testCaseIds)
+    ? testCaseIds.filter((id) => /^[\w.-]+$/.test(id))
+    : [];
 
-  const selection = Array.isArray(testCaseIds) && testCaseIds.length
-    ? `${testCaseIds.length} selected test(s)`
-    : `all ${moduleName} tests`;
-  try {
-    ok(res, jobs.start({
+  // Run the heaviest sets first. A batch that is going to fail on a missing account or a flat
+  // phone battery then does so early, rather than after an hour of the small ones.
+  const ordered = [...wanted].sort((a, b) => known.get(b) - known.get(a) || a.localeCompare(b));
+
+  const runs = ordered.map((name) => {
+    const args = [
+      platform.platformPaths(config.automationDir).cli,
+      '--execute-only',
+      '--package', pkg,
+      '--module', name,
+      '--device', device,
+    ];
+    for (const id of chosenIds) args.push('--test-case-id', id);
+    const selection = chosenIds.length
+      ? `${chosenIds.length} selected test(s) from ${name}`
+      : `all ${known.get(name)} ${name} test(s)`;
+    return {
       label: `Running ${selection} for ${pkg} on ${device}`,
+      queueLabel: name,
       file: config.nodePath,
       args,
       cwd: config.automationDir,
       kind: 'execute',
-    }));
+    };
+  });
+
+  try {
+    ok(res, startRuns(runs));
   } catch (error) {
     fail(res, error.message, 409);
   }

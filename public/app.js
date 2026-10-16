@@ -81,19 +81,23 @@ async function refreshHealth() {
 
     $('#automationDir').value = h.config.automationDir;
     $('#btnBuild').disabled = !h.platform.dirExists;
-    applyBusy(h.job.busy, h.job.job);
+    applyBusy(h.job.busy, h.job.job, h.job.queue);
     // Survives a reload: the verdict of the last run is worth seeing even after closing the tab.
-    if (!h.job.busy) renderVerdict(h.job.lastFinished);
+    if (!h.job.busy) renderVerdict(h.job.lastFinished, h.job.queue?.note);
   } catch (error) {
     setChip('#chipPlatform', 'bad', 'Dashboard server unreachable');
     console.error(error);
   }
 }
 
-function applyBusy(busy, job) {
+function applyBusy(busy, job, queue) {
   state.busy = busy;
   $('#btnStop').disabled = !busy;
-  $('#jobLabel').textContent = busy && job ? job.label : 'Nothing running';
+  // Say how many sets are still waiting, so a long batch does not look like one stuck run.
+  const waiting = queue?.pending
+    ? ` · ${queue.pending} more set${queue.pending === 1 ? '' : 's'} waiting`
+    : '';
+  $('#jobLabel').textContent = busy && job ? job.label + waiting : 'Nothing running';
   for (const id of ['#btnCrawl', '#btnRun', '#btnImport', '#btnBuild', '#btnStartEngine', '#btnStopEngine', '#btnParallel']) {
     const node = $(id);
     if (node) node.disabled = busy;
@@ -281,34 +285,103 @@ function currentApp(sel) {
   return state.apps.find((a) => a.package === $(sel).value) || null;
 }
 
+/**
+ * The sets of tests an app holds, as ticks rather than a dropdown.
+ *
+ * Several can be picked at once because a full regression means running every set, and the
+ * platform runs exactly one per invocation — so the dashboard queues them rather than making
+ * someone come back and start the next one seventeen times.
+ */
 function renderModules() {
   const app = currentApp('#runApp');
-  const node = $('#runModule');
-  const previous = node.value;
-  node.replaceChildren();
+  const host = $('#moduleList');
+  const previous = new Set(selectedModules());
+  host.replaceChildren();
+
   const modules = app?.modules || [];
   if (!modules.length) {
-    const opt = el('option', null, 'No tests stored for this app');
-    opt.value = '';
-    node.append(opt);
+    host.append(el('p', 'muted', app ? 'No tests stored for this app yet.' : 'Choose an app first.'));
     renderCases();
+    renderModuleHint();
     return;
   }
+
   for (const m of modules) {
-    const opt = el('option', null, `${m.name}  (${m.cases.length})`);
-    opt.value = m.name;
-    node.append(opt);
+    const row = el('label', 'case');
+    const box = el('input');
+    box.type = 'checkbox';
+    box.value = m.name;
+    // Keep ticks across a refresh, and start with one set chosen rather than none.
+    box.checked = previous.size ? previous.has(m.name) : m === modules[0];
+    box.addEventListener('change', () => {
+      renderCases();
+      renderModuleHint();
+    });
+    row.append(box);
+    row.append(el('span', 'case-title', m.name));
+    row.append(el('span', 'case-steps', `${m.cases.length} test${m.cases.length === 1 ? '' : 's'}`));
+    host.append(row);
   }
-  if (previous && modules.some((m) => m.name === previous)) node.value = previous;
   renderCases();
+  renderModuleHint();
+}
+
+function selectedModules() {
+  const host = $('#moduleList');
+  if (!host) return [];
+  return [...host.querySelectorAll('input:checked')].map((i) => i.value);
+}
+
+function renderModuleHint() {
+  const node = $('#moduleHint');
+  if (!node) return;
+  const app = currentApp('#runApp');
+  const chosen = selectedModules();
+  if (!chosen.length) {
+    node.textContent = 'Nothing ticked — tick at least one set to run.';
+    return;
+  }
+  if (chosen.length === 1) {
+    node.textContent = 'One set. You can narrow it to individual tests below.';
+    return;
+  }
+  const tests = (app?.modules || [])
+    .filter((m) => chosen.includes(m.name))
+    .reduce((n, m) => n + m.cases.length, 0);
+  node.textContent =
+    `${chosen.length} sets, ${tests} tests in total. They run one after another, heaviest first — ` +
+    'a phone can only run one set at a time.';
 }
 
 function renderCases() {
   const app = currentApp('#runApp');
-  const moduleName = $('#runModule').value;
-  const mod = app?.modules.find((m) => m.name === moduleName);
+  const chosen = selectedModules();
   const list = $('#caseList');
   list.replaceChildren();
+
+  // Choosing individual tests only means something inside one set. With several ticked, the whole
+  // of each is run, so offering a tick list here would promise something that will not happen —
+  // and the controls that go with it are turned off rather than left looking available.
+  const single = chosen.length === 1;
+  for (const id of ['#btnSelectAll', '#btnSelectNone']) {
+    const node = $(id);
+    if (node) node.disabled = !single;
+  }
+  const caseHint = $('#caseHint');
+  if (caseHint) {
+    caseHint.textContent = single
+      ? 'Leave everything unticked to run the whole set in its normal order.'
+      : '';
+  }
+
+  if (!single) {
+    list.append(el('p', 'muted', chosen.length
+      ? `All tests in the ${chosen.length} ticked sets will run. Tick just one set to choose individual tests.`
+      : 'Tick a set of tests above.'));
+    return;
+  }
+
+  const mod = app?.modules.find((m) => m.name === chosen[0]);
   if (!mod || !mod.cases.length) {
     list.append(el('p', 'muted', 'Nothing to show.'));
     return;
@@ -645,18 +718,22 @@ function clearConsole() {
  * somewhere in tens of thousands of webdriver lines, and "finished with exit code 0" is printed
  * just as cheerfully for a crawl that mapped nothing as for one that mapped the whole app.
  */
-function renderVerdict(lastFinished) {
+function renderVerdict(lastFinished, queueNote) {
   const node = $('#verdict');
   if (!node) return;
   const verdict = lastFinished?.verdict;
-  if (!verdict) {
+  if (!verdict && !queueNote) {
     node.hidden = true;
     return;
   }
   node.replaceChildren();
-  node.className = `verdict is-${verdict.tone}`;
-  node.append(el('p', 'verdict-head', verdict.headline));
-  for (const detail of verdict.details || []) node.append(el('p', 'verdict-detail', detail));
+  node.className = `verdict is-${verdict?.tone ?? 'warn'}`;
+  if (verdict) {
+    node.append(el('p', 'verdict-head', verdict.headline));
+    for (const detail of verdict.details || []) node.append(el('p', 'verdict-detail', detail));
+  }
+  // A batch that was cut short has to say so, rather than just vanishing from the progress line.
+  if (queueNote) node.append(el('p', 'verdict-detail', queueNote));
   node.hidden = false;
 }
 
@@ -665,12 +742,12 @@ function connectStream() {
   source.addEventListener('line', (event) => appendLine(JSON.parse(event.data)));
   source.addEventListener('status', (event) => {
     const status = JSON.parse(event.data);
-    applyBusy(status.busy, status.job);
+    applyBusy(status.busy, status.job, status.queue);
     if (status.busy) {
       // Last run's verdict is not the verdict of the one now starting.
       $('#verdict').hidden = true;
     } else {
-      renderVerdict(status.lastFinished);
+      renderVerdict(status.lastFinished, status.queue?.note);
       // A run just ended: suites and reports may have changed.
       refreshApps();
       refreshHealth();
@@ -707,9 +784,16 @@ function wireActions() {
   $('#btnRefreshDevices').addEventListener('click', refreshDevices);
   $('#btnRefreshApps').addEventListener('click', refreshApps);
   $('#runApp').addEventListener('change', renderModules);
-  $('#runModule').addEventListener('change', renderCases);
   $('#importApp').addEventListener('change', renderImportHint);
   $('#resultsApp').addEventListener('change', renderReports);
+  const setAllModules = (checked) => {
+    for (const box of $('#moduleList').querySelectorAll('input')) box.checked = checked;
+    renderCases();
+    renderModuleHint();
+  };
+  $('#btnModulesAll').addEventListener('click', () => setAllModules(true));
+  $('#btnModulesNone').addEventListener('click', () => setAllModules(false));
+
   $('#btnSelectAll').addEventListener('click', () => {
     for (const i of $('#caseList').querySelectorAll('input')) i.checked = true;
   });
@@ -869,12 +953,15 @@ function wireActions() {
         method: 'POST',
         body: JSON.stringify({
           pkg: $('#runApp').value,
-          module: $('#runModule').value,
+          modules: selectedModules(),
           device: state.device,
           testCaseIds: selectedCaseIds(),
         }),
       });
-      toast('Running — watch Live progress.');
+      const sets = selectedModules().length;
+      toast(sets > 1
+        ? `Running ${sets} sets one after another — watch Live progress.`
+        : 'Running — watch Live progress.');
     } catch (error) {
       toast(error.message, true);
     }

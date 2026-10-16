@@ -139,17 +139,25 @@
   <!-- ---------------------------------------------------------------- run -->
   <section class="card tabpanel" data-panel="run">
     <h2>2 · Run tests</h2>
-    <p class="hint">Pick an app, pick which tests, and run them on the phone you chose above.</p>
+    <p class="hint">Pick an app, tick the sets of tests you want, and run them on the phone you chose above.</p>
 
-    <div class="grid-2">
-      <div class="field">
-        <label for="runApp">App</label>
-        <select id="runApp"></select>
+    <div class="field">
+      <label for="runApp">App</label>
+      <select id="runApp"></select>
+    </div>
+
+    <div class="field">
+      <div class="label-row">
+        <label>Which sets of tests</label>
+        <div class="inline-actions">
+          <button class="btn btn-quiet btn-sm" id="btnModulesAll" type="button">Select all</button>
+          <button class="btn btn-quiet btn-sm" id="btnModulesNone" type="button">Clear</button>
+        </div>
       </div>
-      <div class="field">
-        <label for="runModule">Which set of tests</label>
-        <select id="runModule"></select>
-      </div>
+      <div id="moduleList" class="case-list"><p class="muted">Choose an app first.</p></div>
+      <p class="hint" id="moduleHint">
+        Tick more than one and they run one after another — a phone can only run one set at a time.
+      </p>
     </div>
 
     <div class="field">
@@ -161,7 +169,7 @@
         </div>
       </div>
       <div id="caseList" class="case-list"><p class="muted">Choose an app first.</p></div>
-      <p class="hint">Leave everything unticked to run the whole set in its normal order.</p>
+      <p class="hint" id="caseHint">Leave everything unticked to run the whole set in its normal order.</p>
     </div>
 
     <div class="actions">
