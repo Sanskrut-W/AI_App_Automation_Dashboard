@@ -20,7 +20,8 @@ const platform = require('./lib/platform');
 const appium = require('./lib/appium');
 const { JobRunner } = require('./lib/jobs');
 const { createRunQueue } = require('./lib/queue');
-const { consolidateBatchToDisk } = require('./lib/consolidate');
+const { consolidateBatchToDisk, planReportBundle } = require('./lib/consolidate');
+const { writeZip, planBundle } = require('./lib/zip');
 
 const config = loadConfig();
 const app = express();
@@ -256,6 +257,70 @@ app.get('/api/apps/:pkg/reports', (req, res) => {
 
   const reports = [...consolidated, ...individual].sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
   ok(res, { reports, foldedAway: folded.size });
+});
+
+/**
+ * Hands back a report and its screenshots as one zip.
+ *
+ * Saving the page from a browser gives an HTML file whose every image is broken, because the
+ * screenshots are served by this dashboard rather than sitting next to the report. The bundle
+ * rewrites those references to files inside it, so what arrives is a report that opens on a
+ * machine that has never heard of this application.
+ */
+app.get('/download/:kind/:pkg/:file', async (req, res) => {
+  const { kind, pkg, file } = req.params;
+  if (kind !== 'consolidated' && kind !== 'report') return fail(res, 'Unknown kind of report.', 404);
+
+  const baseDir = kind === 'consolidated'
+    ? path.resolve(CONSOLIDATED_DIR, pkg)
+    : path.resolve(platform.platformPaths(config.automationDir).appsDir, pkg, 'reports');
+  const htmlPath = path.resolve(baseDir, file);
+  if (!htmlPath.startsWith(baseDir + path.sep) || !fs.existsSync(htmlPath)) {
+    return res.status(404).send('Report not found.');
+  }
+
+  let entries;
+  try {
+    entries = planReportBundle(htmlPath, platform.platformPaths(config.automationDir).appsDir, pkg);
+  } catch (error) {
+    return fail(res, `That report could not be read: ${error.message}`, 500);
+  }
+
+  // No zip64 in the writer, so an impossible bundle is refused rather than written corrupt.
+  const plan = planBundle(entries);
+  if (plan.bytes >= 0xffffffff) {
+    return fail(res, 'That report is too large to bundle. Open it in the dashboard instead.', 413);
+  }
+
+  const name = `${pkg}-${path.basename(file, '.html')}.zip`;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+  try {
+    await writeZip(res, entries);
+  } catch (error) {
+    // Headers are long gone by now; all that is left is to stop writing.
+    console.error(`Download of ${name} failed partway: ${error.message}`);
+  }
+  res.end();
+});
+
+/** How big a bundle would be, so the page can say so before anyone waits for it. */
+app.get('/api/apps/:pkg/reports/:file/size', (req, res) => {
+  const { pkg, file } = req.params;
+  const kind = req.query.kind === 'consolidated' ? 'consolidated' : 'report';
+  const baseDir = kind === 'consolidated'
+    ? path.resolve(CONSOLIDATED_DIR, pkg)
+    : path.resolve(platform.platformPaths(config.automationDir).appsDir, pkg, 'reports');
+  const htmlPath = path.resolve(baseDir, file);
+  if (!htmlPath.startsWith(baseDir + path.sep) || !fs.existsSync(htmlPath)) {
+    return fail(res, 'Report not found.', 404);
+  }
+  try {
+    const plan = planBundle(planReportBundle(htmlPath, platform.platformPaths(config.automationDir).appsDir, pkg));
+    return ok(res, { files: plan.files, bytes: plan.bytes });
+  } catch (error) {
+    return fail(res, error.message, 500);
+  }
 });
 
 /** Serves a consolidated report, refusing anything that escapes this app's own reports folder. */

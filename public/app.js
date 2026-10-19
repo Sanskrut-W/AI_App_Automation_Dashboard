@@ -421,6 +421,33 @@ function renderSummary() {
   }
 }
 
+const formatBytes = (bytes) => {
+  if (!Number.isFinite(bytes)) return '';
+  if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(1)} GB`;
+  if (bytes >= 1048576) return `${Math.round(bytes / 1048576)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+};
+
+/**
+ * Puts the bundle's size on the download link.
+ *
+ * Screenshots run to better than half a megabyte each, so a batch across every set can bundle to
+ * a few hundred — worth knowing before clicking rather than after. Asked for separately because
+ * measuring it means stat-ing every screenshot the report refers to, which is not something to do
+ * for twenty-five rows while the list is being drawn.
+ */
+async function annotateDownloadSize(link, pkg, report) {
+  try {
+    const kind = report.consolidated ? 'consolidated' : 'report';
+    const { bytes } = await api(
+      `/api/apps/${encodeURIComponent(pkg)}/reports/${encodeURIComponent(report.file)}/size?kind=${kind}`,
+    );
+    if (link.isConnected) link.textContent = `Download (${formatBytes(bytes)})`;
+  } catch {
+    // The link still works; only the size is missing.
+  }
+}
+
 async function renderReports() {
   const pkg = $('#resultsApp').value;
   const list = $('#reportList');
@@ -448,6 +475,16 @@ async function renderReports() {
       if (report.consolidated) {
         row.append(el('span', 'tag', `${report.moduleCount} sets`));
       }
+
+      // A plain "save page as" would keep the HTML and lose every screenshot, so the download is
+      // a bundle of the report with its images — and says how big it is before you commit to it.
+      const download = el('a', 'download-link', 'Download');
+      download.href = `/download/${report.consolidated ? 'consolidated' : 'report'}`
+        + `/${encodeURIComponent(pkg)}/${encodeURIComponent(report.file)}`;
+      download.title = 'The report and its screenshots, as a zip';
+      download.download = '';
+      row.append(download);
+      annotateDownloadSize(download, pkg, report);
       const when = el('time', null, new Date(report.modifiedAt).toLocaleString());
       when.dateTime = report.modifiedAt;
       row.append(when);

@@ -86,6 +86,13 @@ section per set. The per-set reports it folded in are hidden behind it in the Re
 than sitting alongside as near-duplicates. The consolidated file is written into this project's own
 `reports/` folder, never the platform's, and refers to the platform's screenshots by URL.
 
+**Reports download as a bundle, not a page.** Saving a report from the browser keeps the HTML and
+loses every screenshot, because the images are served by this dashboard rather than sitting next to
+the file. The Download link gives a zip of the report with its screenshots and the image references
+rewritten to point inside it, so it opens on a machine that has never heard of this application.
+The link shows the size first: screenshots run to better than half a megabyte each, and a run
+covering a large module can bundle to tens of megabytes.
+
 **A run is checked before it starts.** The phone is re-checked against adb at the moment you press
 the button — not when the page loaded — and the test engine is started for you if it is not already
 running. Both used to surface minutes later as a stack trace at the bottom of a console already
@@ -117,7 +124,8 @@ lib/platform.js    read-only view of the platform: apps, suites, reports, device
 lib/jobs.js        runs one CLI job at a time, buffers and streams its output
 lib/outcome.js     watches a run's output and turns it into a plain-language verdict
 lib/queue.js       runs several sets of tests back to back, and knows what stops a batch
-lib/consolidate.js draws a batch's per-set reports into one document
+lib/consolidate.js draws a batch's per-set reports into one document, and bundles one for download
+lib/zip.js         a small streaming zip writer, so a bundle needs no extra dependency
 lib/appium.js      starts/stops/checks the test engine
 public/            the dashboard itself (no build step, no framework)
 uploads/           APKs and spreadsheets uploaded through the dashboard, and APKs copied off phones

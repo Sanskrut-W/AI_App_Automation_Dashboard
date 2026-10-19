@@ -498,3 +498,6 @@ select.multi {
   padding: 2px 8px;
   border-radius: 20px;
 }
+
+.report .download-link { font-size: 13px; color: var(--ink-soft); }
+.report .download-link:hover { color: var(--accent); }
