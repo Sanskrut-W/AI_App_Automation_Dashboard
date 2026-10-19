@@ -21,7 +21,7 @@ Then open **http://localhost:4000**.
 | **Run tests** | Pick an app, pick a set of tests (or individual ones), run them on a connected phone. |
 | **Run on several phones** | One row per phone, each with its own app and its own tests, all running at the same time through the platform multi-device runner. |
 | **Create tests from a flow** | Upload a spreadsheet describing a journey; it becomes real, runnable tests using the elements recorded when the app was explored. |
-| **Results** | Every run's report, newest first, with pass/fail counts and a link to the full report with screenshots. |
+| **Results** | Every run's report, newest first, with pass/fail counts and a link to the full report with screenshots. Running several sets together produces one consolidated report with a section per set. |
 
 The header also has **Start test engine** (the platform needs Appium running and does not start it
 itself), **Build platform**, and a live progress console with a **Stop** button.
@@ -78,6 +78,14 @@ other out mid-run. The mapping lives in the platform's `config/test-accounts.jso
 `<package>.deviceAccounts`; rows turn amber when a phone has no account for the app it is set to
 run, so it can be fixed before the run rather than during it.
 
+**Several sets of tests give one report.** The platform runs one module per invocation and writes
+one report per invocation, so running everything for an app used to leave a pile of reports that
+had to be opened one at a time. Tick several sets and they are queued, and when the batch finishes
+the dashboard draws their reports into a single document — overall totals, a contents table, then a
+section per set. The per-set reports it folded in are hidden behind it in the Results list rather
+than sitting alongside as near-duplicates. The consolidated file is written into this project's own
+`reports/` folder, never the platform's, and refers to the platform's screenshots by URL.
+
 **A run is checked before it starts.** The phone is re-checked against adb at the moment you press
 the button — not when the page loaded — and the test engine is started for you if it is not already
 running. Both used to surface minutes later as a stack trace at the bottom of a console already
@@ -108,7 +116,10 @@ lib/config.js      config.json + environment overrides
 lib/platform.js    read-only view of the platform: apps, suites, reports, devices
 lib/jobs.js        runs one CLI job at a time, buffers and streams its output
 lib/outcome.js     watches a run's output and turns it into a plain-language verdict
+lib/queue.js       runs several sets of tests back to back, and knows what stops a batch
+lib/consolidate.js draws a batch's per-set reports into one document
 lib/appium.js      starts/stops/checks the test engine
 public/            the dashboard itself (no build step, no framework)
 uploads/           APKs and spreadsheets uploaded through the dashboard, and APKs copied off phones
+reports/           consolidated reports this dashboard writes (the platform's own are untouched)
 ```

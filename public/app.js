@@ -436,13 +436,18 @@ async function renderReports() {
       return;
     }
     for (const report of reports.slice(0, 25)) {
-      const row = el('div', 'report');
-      const link = el('a', null, 'Open report');
-      // Mirrors the on-disk layout, so the screenshots the report links to relatively resolve.
-      link.href = `/artifacts/${encodeURIComponent(pkg)}/reports/${encodeURIComponent(report.file)}`;
+      const row = el('div', `report${report.consolidated ? ' is-consolidated' : ''}`);
+      const link = el('a', null, report.consolidated ? 'Open consolidated report' : 'Open report');
+      // The server gives each report its own URL: a consolidated one is this app's own file, an
+      // individual one mirrors the platform's layout so its relative screenshots resolve.
+      link.href = report.url
+        || `/artifacts/${encodeURIComponent(pkg)}/reports/${encodeURIComponent(report.file)}`;
       link.target = '_blank';
       link.rel = 'noopener';
       row.append(link);
+      if (report.consolidated) {
+        row.append(el('span', 'tag', `${report.moduleCount} sets`));
+      }
       const when = el('time', null, new Date(report.modifiedAt).toLocaleString());
       when.dateTime = report.modifiedAt;
       row.append(when);

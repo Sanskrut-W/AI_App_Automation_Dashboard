@@ -20,6 +20,7 @@ const platform = require('./lib/platform');
 const appium = require('./lib/appium');
 const { JobRunner } = require('./lib/jobs');
 const { createRunQueue } = require('./lib/queue');
+const { consolidateBatchToDisk } = require('./lib/consolidate');
 
 const config = loadConfig();
 const app = express();
@@ -46,10 +47,37 @@ const fail = (res, message, code = 400) => res.status(code).json({ ok: false, er
 /** Status as the browser should see it: the running job plus anything waiting behind it. */
 const statusWithQueue = () => ({ ...jobs.status(), queue: runQueue.state() });
 
+const CONSOLIDATED_DIR = path.join(__dirname, 'reports');
+
+/**
+ * Draws a finished batch's reports into one document.
+ *
+ * Running every set of tests for an app leaves one report per set, which answers "did this module
+ * pass" but never "did the release pass" without opening all of them. This writes the combined
+ * view into this application's own folder — the platform's directory stays untouched, as it does
+ * everywhere else here — and records which reports went into it so the Results list can show the
+ * one that matters instead of the seventeen behind it.
+ */
+function consolidateBatch(batch) {
+  try {
+    const written = consolidateBatchToDisk(batch, { baseDir: CONSOLIDATED_DIR });
+    if (written) {
+      console.log(`  consolidated report written: ${written.file} (${written.summary.moduleCount} sets)`);
+    }
+  } catch (error) {
+    // A batch that ran is not undone by failing to summarise it; the per-set reports still exist.
+    console.error(`Could not write the consolidated report: ${error.message}`);
+  }
+}
+
 const runQueue = createRunQueue(jobs, {
   // The runner emits its own status when a job starts; this covers the changes it cannot see,
   // such as a batch being abandoned with nothing new started in its place.
   onChange: () => jobs.emit('status', statusWithQueue()),
+  onBatchComplete: (batch) => {
+    consolidateBatch(batch);
+    jobs.emit('status', statusWithQueue());
+  },
 });
 
 const startRuns = (runs) => ({ ...runQueue.start(runs), queue: runQueue.state() });
@@ -168,8 +196,75 @@ app.get('/api/apps', (_req, res) => {
   ok(res, { apps: platform.listApps(config.automationDir) });
 });
 
+/**
+ * Consolidated reports this dashboard has written for one app, newest first.
+ *
+ * Kept here rather than in lib/platform.js because these are this application's own files; that
+ * module is strictly a read-only view of the platform.
+ */
+function listConsolidatedReports(pkg) {
+  const dir = path.join(CONSOLIDATED_DIR, pkg);
+  if (!fs.existsSync(dir)) return [];
+  const reports = [];
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.html'))) {
+    const full = path.join(dir, file);
+    let stat;
+    try {
+      stat = fs.statSync(full);
+    } catch {
+      continue;
+    }
+    let summary = {};
+    try {
+      summary = JSON.parse(fs.readFileSync(full.replace(/\.html$/, '.json'), 'utf8'));
+    } catch {
+      summary = {};
+    }
+    reports.push({
+      file,
+      consolidated: true,
+      url: `/consolidated/${encodeURIComponent(pkg)}/${encodeURIComponent(file)}`,
+      modifiedAt: stat.mtime.toISOString(),
+      sizeBytes: stat.size,
+      generatedAt: summary.generatedAt ?? null,
+      total: summary.totalTestCases ?? null,
+      passed: summary.passed ?? null,
+      failed: summary.failed ?? null,
+      moduleCount: summary.moduleCount ?? null,
+      modules: summary.modules ?? [],
+      parts: (summary.parts ?? []).map((p) => p.file).filter(Boolean),
+    });
+  }
+  reports.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+  return reports;
+}
+
 app.get('/api/apps/:pkg/reports', (req, res) => {
-  ok(res, { reports: platform.listReports(config.automationDir, req.params.pkg) });
+  const pkg = req.params.pkg;
+  const consolidated = listConsolidatedReports(pkg);
+  // Everything folded into a consolidated report is hidden behind it: the whole point of asking
+  // for one report is not being handed seventeen near-duplicates next to it.
+  const folded = new Set(consolidated.flatMap((r) => r.parts));
+  const individual = platform
+    .listReports(config.automationDir, pkg)
+    .filter((r) => !folded.has(r.file))
+    .map((r) => ({
+      ...r,
+      consolidated: false,
+      url: `/artifacts/${encodeURIComponent(pkg)}/reports/${encodeURIComponent(r.file)}`,
+    }));
+
+  const reports = [...consolidated, ...individual].sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+  ok(res, { reports, foldedAway: folded.size });
+});
+
+/** Serves a consolidated report, refusing anything that escapes this app's own reports folder. */
+app.get('/consolidated/:pkg/:file', (req, res) => {
+  const dir = path.resolve(CONSOLIDATED_DIR, req.params.pkg);
+  const full = path.resolve(dir, req.params.file);
+  if (!full.startsWith(dir + path.sep)) return res.status(404).send('Report not found.');
+  if (!fs.existsSync(full)) return res.status(404).send('Report not found.');
+  res.sendFile(full);
 });
 
 /**
@@ -451,6 +546,8 @@ app.post('/api/run/execute', async (req, res) => {
     return {
       label: `Running ${selection} for ${pkg} on ${device}`,
       queueLabel: name,
+      // Carried so a finished batch knows which app it was for, when drawing its reports together.
+      pkg,
       file: config.nodePath,
       args,
       cwd: config.automationDir,

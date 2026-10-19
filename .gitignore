@@ -10,3 +10,6 @@ config.json
 # Internal overview carrying real project metrics — deliberately not published.
 docs/Mobile-Test-Automation-Overview.pdf
 docs/overview.html
+
+# Consolidated reports this dashboard writes for multi-set runs.
+reports/
