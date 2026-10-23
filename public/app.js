@@ -655,7 +655,7 @@ function renderParallelRows() {
     testField.append(testSelect);
     testField.append(el('p', 'hint', 'Hold Ctrl to pick more than one.'));
 
-    const remove = el('button', 'btn btn-quiet btn-sm', 'Remove');
+    const remove = el('button', 'btn btn-secondary btn-sm', 'Remove');
     remove.type = 'button';
     remove.addEventListener('click', () => {
       state.parallelRows = state.parallelRows.filter((r) => r.key !== row.key);
