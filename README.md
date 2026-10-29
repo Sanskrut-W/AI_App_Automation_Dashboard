@@ -86,6 +86,22 @@ section per set. The per-set reports it folded in are hidden behind it in the Re
 than sitting alongside as near-duplicates. The consolidated file is written into this project's own
 `reports/` folder, never the platform's, and refers to the platform's screenshots by URL.
 
+**A consolidated report opens on what went wrong.** A full run is seventeen sets, several hundred
+tests and nineteen thousand pixels of document, nearly all of it passes. So:
+
+- The **failed** count is a button. It opens a list of every failing test in the batch, grouped by
+  set, each saying which step failed and why, and each one a link straight to that test — which
+  unfolds whatever it is inside and leaves the address bar pointing at it, so a single failure can
+  be sent to someone.
+- **Every set folds.** Sets with a failure open themselves and the rest stay shut, which takes the
+  same report from 19,400px to 2,600px. *Expand all* and *Collapse all* are above the sections, the
+  failed count in the contents table jumps to that set's failures, and printing unfolds everything
+  first so a printed copy is never missing a section.
+
+Screenshots are sized rather than merely capped, so a lazily-loaded one holds its place before it
+arrives. Left uncapped they land after the jump that brought you there and push the test you were
+reading some 600px down the page.
+
 **Reports download as a bundle, not a page.** Saving a report from the browser keeps the HTML and
 loses every screenshot, because the images are served by this dashboard rather than sitting next to
 the file. The Download link gives a zip of the report with its screenshots and the image references
