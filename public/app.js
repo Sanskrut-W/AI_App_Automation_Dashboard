@@ -632,39 +632,82 @@ function renderParallelRows() {
     });
     appField.append(appSelect);
 
-    const testField = el('div', 'field field-wide');
-    testField.append(el('label', null, `Tests${cases.length ? ` (${row.testCaseIds.length} of ${cases.length} picked)` : ''}`));
-    const testSelect = el('select', 'multi');
-    testSelect.multiple = true;
-    testSelect.size = Math.min(Math.max(cases.length, 3), 6);
+    /* Tests are ticked, not Ctrl-clicked.
+       A native multiple-select hid its own state: the titles were cut off, the only cue that
+       something was chosen was a grey highlight, and picking a second one needed a keyboard
+       instruction printed underneath. This is the same tick list the Run tests tab already uses,
+       so the two screens now behave the same way. */
+    const testSection = el('div', 'prow-tests');
+    const testHead = el('div', 'prow-tests-head');
+    const countLabel = el('span', 'prow-count');
+    const describeCount = () => {
+      countLabel.textContent = cases.length
+        ? `${row.testCaseIds.length} of ${cases.length} selected`
+        : '';
+    };
+    testHead.append(el('span', 'prow-tests-label', 'Tests to run'), countLabel);
+
+    const pickAll = el('button', 'btn btn-ghost btn-sm', 'Select all');
+    const pickNone = el('button', 'btn btn-ghost btn-sm', 'Clear');
+    pickAll.type = 'button';
+    pickNone.type = 'button';
+    pickAll.disabled = !cases.length;
+    pickNone.disabled = !cases.length;
+    const testActions = el('div', 'inline-actions');
+    testActions.append(pickAll, pickNone);
+    testHead.append(testActions);
+    testSection.append(testHead);
+
+    const testList = el('div', 'case-list prow-case-list');
     if (!cases.length) {
-      const option = el('option', null, row.pkg ? `No ${moduleName || 'tests'} for this app` : 'Choose an app first');
-      option.disabled = true;
-      testSelect.append(option);
+      testList.append(el('p', 'muted', row.pkg
+        ? `This app has no ${moduleName || 'tests'} tests.`
+        : 'Choose an app to see its tests.'));
     }
     for (const testCase of cases) {
-      const option = el('option', null, `${testCase.title} · ${testCase.steps} steps`);
-      option.value = testCase.id;
-      option.selected = row.testCaseIds.includes(testCase.id);
-      testSelect.append(option);
+      const line = el('label', 'case');
+      const box = el('input');
+      box.type = 'checkbox';
+      box.value = testCase.id;
+      box.checked = row.testCaseIds.includes(testCase.id);
+      box.addEventListener('change', () => {
+        row.testCaseIds = [...testList.querySelectorAll('input:checked')].map((i) => i.value);
+        // Only the count is redrawn: re-rendering every row on each tick would throw away the
+        // reader's place in a long list.
+        describeCount();
+      });
+      line.append(box, el('span', 'case-title', testCase.title), el('span', 'case-steps', `${testCase.steps} steps`));
+      testList.append(line);
     }
-    testSelect.addEventListener('change', () => {
-      row.testCaseIds = [...testSelect.selectedOptions].map((o) => o.value);
-      renderParallelRows();
-    });
-    testField.append(testSelect);
-    testField.append(el('p', 'hint', 'Hold Ctrl to pick more than one.'));
+    const setAll = (checked) => {
+      for (const box of testList.querySelectorAll('input')) box.checked = checked;
+      row.testCaseIds = checked ? cases.map((c) => c.id) : [];
+      describeCount();
+    };
+    pickAll.addEventListener('click', () => setAll(true));
+    pickNone.addEventListener('click', () => setAll(false));
+    describeCount();
+    testSection.append(testList);
 
-    const remove = el('button', 'btn btn-secondary btn-sm', 'Remove');
+    const remove = el('button', 'btn btn-ghost btn-sm prow-remove', 'Remove');
     remove.type = 'button';
+    remove.title = 'Remove this phone from the run';
+    // A bare word at the end of a row reads as a label; the cross says it is an action.
+    remove.insertAdjacentHTML('afterbegin',
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>');
     remove.addEventListener('click', () => {
       state.parallelRows = state.parallelRows.filter((r) => r.key !== row.key);
       renderParallelRows();
     });
 
-    node.append(phoneField, appField, testField, remove);
+    // Header carries who and what; the body carries which tests. One row reads as a sentence.
+    const head = el('div', 'prow-head');
+    head.append(el('span', 'prow-index', `Phone ${state.parallelRows.indexOf(row) + 1}`));
+    head.append(phoneField, appField, remove);
+
+    node.append(head, testSection);
     if (isDuplicate) {
-      node.append(el('p', 'row-warn', 'This phone is used by another row. A phone can only run one test at a time.'));
+      node.append(el('p', 'row-warn', 'This phone is already used by another row — a phone can only run one set of tests at a time.'));
     } else if (warning) {
       node.append(el('p', 'row-warn', `${warning} Add it under config/test-accounts.json → ${row.pkg}.deviceAccounts.`));
     }
